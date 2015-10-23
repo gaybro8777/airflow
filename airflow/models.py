@@ -914,7 +914,7 @@ class TaskInstance(Base):
             logging.info(msg.format(**locals()))
 
             self.start_date = datetime.now()
-            if not force and task.pool:
+            if not force and (task.pool or self.task.dag.concurrency_reached):
                 # If a pool is set for this task, marking the task instance
                 # as QUEUED
                 self.state = State.QUEUED
@@ -1896,6 +1896,9 @@ class DAG(object):
         accessible in templates, namespaced under `params`. These
         params can be overridden at the task level.
     :type params: dict
+    :param concurrency: the number of task instances allowed to run
+        concurrently
+    :type concurrency: int
     """
 
     def __init__(
@@ -1906,6 +1909,7 @@ class DAG(object):
             template_searchpath=None,
             user_defined_macros=None,
             default_args=None,
+            concurrency=conf.getint('core', 'dag_concurrency'),
             params=None):
 
         self.user_defined_macros = user_defined_macros
@@ -1924,6 +1928,7 @@ class DAG(object):
         self.parent_dag = None  # Gets set when DAGs are loaded
         self.last_loaded = datetime.now()
         self.safe_dag_id = dag_id.replace('.', '__dot__')
+        self.concurrency = concurrency
 
         self._comps = {
             'dag_id',
@@ -1999,6 +2004,21 @@ class DAG(object):
     @property
     def owner(self):
         return ", ".join(list(set([t.owner for t in self.tasks])))
+
+    @property
+    @provide_session
+    def concurrency_reached(self, session=None):
+        """
+        Returns a boolean as to whether the concurrency limit for this DAG
+        has been reached
+        """
+        TI = TaskInstance
+        qry = session.query(func.count(TI)).filter(
+            TI.dag_id == self.dag_id,
+            TI.task_id.in_(self.task_ids),
+            TI.state == State.RUNNING,
+        )
+        return qry.scalar() >= self.concurrency
 
     @property
     def latest_execution_date(self):
