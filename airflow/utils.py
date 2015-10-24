@@ -190,6 +190,15 @@ def initdb():
                 host='localhost'))
         session.commit()
 
+    conn = session.query(C).filter(C.conn_id == 'postgres_default').first()
+    if not conn:
+        session.add(
+            models.Connection(
+                conn_id='postgres_default', conn_type='postgres',
+                login='postgres',
+                host='localhost'))
+        session.commit()
+
     conn = session.query(C).filter(C.conn_id == 'sqlite_default').first()
     if not conn:
         home = conf.get('core', 'AIRFLOW_HOME')
